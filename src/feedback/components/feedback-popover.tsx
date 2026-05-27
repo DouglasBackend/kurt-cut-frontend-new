@@ -117,6 +117,7 @@ function FeedbackPopoverContent({ onClose }: { onClose: () => void }) {
 		defaultValues: { message: "" },
 	});
 
+	// eslint-disable-next-line react-hooks/incompatible-library
 	const messageValue = form.watch("message");
 
 	async function handleSubmit(values: FeedbackFormValues) {
