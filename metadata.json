@@ -1,0 +1,5 @@
+{
+  "name": "Kurt Cut - AI Video Clipper",
+  "description": "A SaaS frontend for automatically generating video clips, similar to Opus Clips.",
+  "requestFramePermissions": []
+}
