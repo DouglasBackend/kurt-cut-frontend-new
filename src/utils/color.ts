@@ -1,4 +1,12 @@
-import { converter, formatHex, formatHex8, parse, type Rgb } from "culori";
+import { converter, formatHex, formatHex8, parse } from "culori";
+
+export interface Rgb {
+	mode: "rgb";
+	r: number;
+	g: number;
+	b: number;
+	alpha?: number;
+}
 
 export type ColorFormat = "hex" | "rgb" | "hsl" | "hsv";
 
