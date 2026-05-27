@@ -16,7 +16,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { SUBTITLE_PRESETS, PRESET_STYLE_MAP, SubtitleCard } from "@/components/SubtitlePresets"
 import { CreditsModal } from "@/components/modals/credits-modal"
 import { cn } from "@/lib/utils"
-import { PLANS } from "../../../../backend/src/modules/billing/billing.constants"
+import { PLANS } from "@/lib/billing.constants"
 
 interface ClipPreferences {
   aspect_ratio: "9:16" | "16:9"
