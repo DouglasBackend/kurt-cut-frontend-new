@@ -334,6 +334,7 @@ export interface Video {
   source_type: "upload" | "youtube";
   source_url?: string;
   youtube_thumbnail?: string;
+  thumbnail_path?: string;
   file_path?: string;
   duration?: number;
   transcript_status?: string;

@@ -15,141 +15,7 @@ import { YoutubeUploadModal } from "@/components/modals/youtube-upload-modal"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
 
-// ─── Etapas de processamento ──────────────────────────────────────────────────
-const STEPS = [
-  { label: "Baixando vídeo",      min: 0,  max: 30  },
-  { label: "Transcrevendo áudio", min: 30, max: 65  },
-  { label: "Analisando com IA",   min: 65, max: 85  },
-  { label: "Renderizando clipes", min: 85, max: 100 },
-]
 
-type StepStatus = "pending" | "active" | "done"
-
-function stepStatus(idx: number, progress: number): StepStatus {
-  const s = STEPS[idx]
-  if (progress >= s.max) return "done"
-  if (progress >= s.min) return "active"
-  return "pending"
-}
-
-// ─── Tela de processamento ────────────────────────────────────────────────────
-function ProcessingScreen({
-  title, progress, statusMsg, hasError, onMinimize
-}: {
-  title: string
-  progress: number
-  statusMsg: string
-  hasError: boolean
-  onMinimize?: () => void
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[65vh] px-6">
-      <div className="w-full max-w-xs space-y-7">
-
-        {/* Ícone */}
-        <div className="flex justify-center">
-          <div className="relative h-16 w-16">
-            <div className="absolute inset-0 rounded-full border-2 border-zinc-800" />
-            {!hasError && (
-              <svg className="absolute inset-0 -rotate-90" viewBox="0 0 64 64">
-                <circle
-                  cx="32" cy="32" r="29"
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="2"
-                  strokeDasharray={`${2 * Math.PI * 29}`}
-                  strokeDashoffset={`${2 * Math.PI * 29 * (1 - progress / 100)}`}
-                  strokeLinecap="round"
-                  className="transition-all duration-700"
-                />
-              </svg>
-            )}
-            <div className="absolute inset-0 flex items-center justify-center">
-              {hasError
-                ? <AlertCircle className="h-6 w-6 text-red-400" />
-                : <Sparkles className="h-6 w-6 text-zinc-400" />
-              }
-            </div>
-          </div>
-        </div>
-
-        {/* Título */}
-        <div className="text-center space-y-1">
-          <h2 className="text-base font-bold text-zinc-100">
-            {hasError ? "Erro no processamento" : "Gerando seus clipes"}
-          </h2>
-          {title && (
-            <p className="text-xs text-zinc-500 truncate">{title}</p>
-          )}
-        </div>
-
-        {/* Steps */}
-        {!hasError && (
-          <div className="space-y-2">
-            {STEPS.map((step, i) => {
-              const s = stepStatus(i, progress)
-              return (
-                <div key={i} className="flex items-center gap-3">
-                  <div className={cn(
-                    "h-5 w-5 rounded-full flex items-center justify-center shrink-0 transition-all duration-300",
-                    s === "done"   ? "bg-emerald-500" :
-                    s === "active" ? "bg-zinc-700 ring-2 ring-zinc-300" :
-                    "bg-zinc-800"
-                  )}>
-                    {s === "done"   && <CheckCircle2 className="h-3 w-3 text-white" />}
-                    {s === "active" && <Loader2 className="h-3 w-3 text-white animate-spin" />}
-                    {s === "pending" && <Clock className="h-3 w-3 text-zinc-600" />}
-                  </div>
-                  <span className={cn(
-                    "text-sm font-medium transition-colors",
-                    s === "done"   ? "text-emerald-400" :
-                    s === "active" ? "text-zinc-100" :
-                    "text-zinc-600"
-                  )}>
-                    {step.label}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Barra */}
-        {!hasError && (
-          <div className="space-y-1">
-            <div className="h-1 w-full bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-white rounded-full transition-[width] duration-700"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] text-zinc-600">
-              {statusMsg ? <span>{statusMsg}</span> : <span />}
-              <span className="tabular-nums">{Math.round(progress)}%</span>
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-3">
-          <p className="text-center text-[10px] text-zinc-600 leading-relaxed">
-            {hasError
-              ? "Houve um problema. Tente novamente ou contate o suporte."
-              : "Isso pode levar alguns minutos. Você pode explorar o KurtCut enquanto espera."}
-          </p>
-          
-          {onMinimize && !hasError && (
-            <button
-              onClick={onMinimize}
-              className="h-10 w-full rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-xs font-bold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-2"
-            >
-              Explorar o KurtCut
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ─── InView hook ──────────────────────────────────────────────────────────────
 function useInView() {
@@ -282,7 +148,7 @@ function ProjectCard({ video, onClick, onDelete, deleting }: {
     video.analysis_status !== "completed" && video.analysis_status !== "error"
   const isLoaded = !isProcessing
   const isReady = video.analysis_status === "completed"
-  const thumb = video.youtube_thumbnail || (video.id ? `${API_URL}/uploads/${video.id}/thumbnail.jpg` : "/placeholder.png")
+  const thumb = video.thumbnail_path || video.youtube_thumbnail || (video.id ? `${API_URL}/uploads/${video.id}/thumbnail.jpg` : "/placeholder.png")
   
   const statusLabel = 
     video.transcript_status === "error" || video.analysis_status === "error" ? "Erro" :
@@ -305,6 +171,7 @@ function ProjectCard({ video, onClick, onDelete, deleting }: {
       onClick={() => isLoaded && onClick(video.id)}
     >
       <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-zinc-950">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img 
           src={thumb} 
           alt={video.title} 
@@ -495,11 +362,22 @@ export default function ClipsPage() {
         setVideo(v); setClips(c)
 
         const ts = v.transcript_status; const as_ = v.analysis_status
+        
+        const isTsProcessing = ts === "processing" || ts === "pending"
+        const isAsProcessing = as_ === "processing" || as_ === "pending"
+        const isTsDone = ts === "completed" || ts === "error" || ts === "skipped" || ts === "failed"
+        const isAsDone = as_ === "completed" || as_ === "error" || as_ === "skipped" || as_ === "failed"
+
         const stillProcessing =
-          ts === "processing" || ts === "pending" ||
-          as_ === "processing" || as_ === "pending" ||
+          isTsProcessing ||
+          isAsProcessing ||
           c.some(x => x.status === "processing" || x.status === "pending") ||
-          (c.length === 0 && ts !== "completed" && ts !== "error")
+          (c.length === 0 && (!isTsDone || !isAsDone))
+
+        if (c.length === 0 && (stillProcessing || ts === "error" || as_ === "error")) {
+          router.push(`/clips/loading?videoId=${videoId}`)
+          return
+        }
 
         setProcessing(stillProcessing)
         setHasError(ts === "error" || as_ === "error")
@@ -519,7 +397,7 @@ export default function ClipsPage() {
       setLoading(false)
       lastFetchedVideoId.current = videoId
     }
-  }, [videoId])
+  }, [videoId, router])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -647,20 +525,7 @@ export default function ClipsPage() {
     </div>
   )
 
-  // Tela de processamento (enquanto não há clips e não minimizado)
-  if (!minimized && (processing || hasError) && clips.length === 0) {
-    return (
-      <div className="max-w-2xl mx-auto">
-        <ProcessingScreen
-          title={video?.title || ""}
-          progress={progress}
-          statusMsg={statusMsg}
-          hasError={hasError}
-          onMinimize={() => setMinimized(true)}
-        />
-      </div>
-    )
-  }
+
 
   const readyClips = clips.filter(c => c.status === "completed" || c.status === "done" || c.status === "error" || c.status === "processing" || c.status === "pending" || !!c.file_path)
 

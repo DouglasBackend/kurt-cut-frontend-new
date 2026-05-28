@@ -111,7 +111,7 @@ export default function LoadingClipsPage() {
                 <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Processamento Ativo</span>
              </div>
              <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-tight">
-               Criando a <span className="text-primary italic">mágica</span>...
+               <span className="text-primary italic">Processando seu Video...</span>
              </h1>
              <p className="text-zinc-400 text-sm md:text-base max-w-md mx-auto">
                Nossa IA está Analisando seu vídeo para encontrar os melhores Clipes.

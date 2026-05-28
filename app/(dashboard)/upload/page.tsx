@@ -36,7 +36,7 @@ const DEFAULT_PREFS: ClipPreferences = {
   generate_subtitles: true,
   burn_subtitles: true,
   face_tracking: true,
-  layout: 'auto',
+  layout: 'none',
   analysis_start: 0,
   analysis_end: 0,
   target_duration: 60,
@@ -54,6 +54,7 @@ export default function UploadPage() {
   const [tab, setTab] = useState<"link" | "file">("link")
   const [youtubeUrl, setYoutubeUrl] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [localThumbnail, setLocalThumbnail] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -119,48 +120,57 @@ export default function UploadPage() {
   }, [])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === "Enter") fetchMetadata(youtubeUrl) }
+  
+  const extractLocalVideoInfo = (f: File) => {
+    if (f.size / (1024 * 1024) > limits.max_upload_size_mb) {
+      setError(`O arquivo excede o limite do seu plano (${limits.max_upload_size_mb}MB).`)
+      return
+    }
+    setSelectedFile(f);
+    setStep("options");
+    
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    const url = URL.createObjectURL(f);
+    video.src = url;
+    
+    video.onloadedmetadata = () => {
+      if (video.duration > limits.max_source_duration) {
+        window.URL.revokeObjectURL(url);
+        const maxMin = Math.round(limits.max_source_duration / 60);
+        setError(`O vídeo é muito longo para seu plano atual. Limite: ${maxMin} minutos.`);
+        resetInput();
+        return;
+      }
+      setDuration(video.duration);
+      setPrefs(p => ({ ...p, analysis_end: Math.floor(video.duration) }));
+      // Pula para 1s ou metade do vídeo para capturar um frame
+      video.currentTime = Math.min(1, video.duration / 2);
+    };
+
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        setLocalThumbnail(canvas.toDataURL('image/jpeg'));
+      }
+      window.URL.revokeObjectURL(url);
+    };
+  }
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) {
-      if (f.size / (1024 * 1024) > limits.max_upload_size_mb) {
-        setError(`O arquivo excede o limite do seu plano (${limits.max_upload_size_mb}MB).`)
-        return
-      }
-
-      setSelectedFile(f);
-      setStep("options");
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      video.onloadedmetadata = () => {
-        window.URL.revokeObjectURL(video.src);
-        if (video.duration > limits.max_source_duration) {
-          const maxMin = Math.round(limits.max_source_duration / 60)
-          setError(`O vídeo é muito longo para seu plano atual. Limite: ${maxMin} minutos.`)
-          resetInput()
-          return
-        }
-        setDuration(video.duration);
-        setPrefs(p => ({ ...p, analysis_end: Math.floor(video.duration) }));
-      };
-      video.src = URL.createObjectURL(f);
-    }
+    if (f) extractLocalVideoInfo(f);
   }
+  
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     const f = e.dataTransfer.files[0];
-    if (f) {
-      setSelectedFile(f);
-      setStep("options");
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      video.onloadedmetadata = () => {
-        window.URL.revokeObjectURL(video.src);
-        setDuration(video.duration);
-        setPrefs(p => ({ ...p, analysis_end: Math.floor(video.duration) }));
-      };
-      video.src = URL.createObjectURL(f);
-    }
+    if (f) extractLocalVideoInfo(f);
   }
   const setP = <K extends keyof ClipPreferences>(k: K, v: ClipPreferences[K]) => setPrefs(p => ({ ...p, [k]: v }))
 
@@ -218,11 +228,12 @@ export default function UploadPage() {
   }
 
   const canGenerate = !submitting && (tab === "file" ? !!selectedFile : !!youtubeMetadata)
-  const resetInput = () => { setYoutubeMetadata(null); setYoutubeUrl(""); setSelectedFile(null); setStep("input"); setMetadataError("") }
+  const resetInput = () => { setYoutubeMetadata(null); setYoutubeUrl(""); setSelectedFile(null); setLocalThumbnail(null); setStep("input"); setMetadataError("") }
 
   const fmtDuration = (sec: number) => {
     if (!sec) return null
-    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60
+    const secInt = Math.floor(sec)
+    const h = Math.floor(secInt / 3600), m = Math.floor((secInt % 3600) / 60), s = secInt % 60
     if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
     return `${m}:${String(s).padStart(2, "0")}`
   }
@@ -377,16 +388,38 @@ export default function UploadPage() {
                     >
                       <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileSelect} />
                       {selectedFile ? (
-                        <div className="flex items-center gap-3 px-5 py-5">
-                          <div className="h-11 w-11 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0">
-                            <Film className="h-5 w-5 text-emerald-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-zinc-100 truncate">{selectedFile.name}</p>
-                            <p className="text-xs text-zinc-500 mt-0.5">{(selectedFile.size / 1024 / 1024).toFixed(1)} MB</p>
-                          </div>
-                          <button type="button" onClick={e => { e.stopPropagation(); resetInput() }} className="text-xs text-zinc-600 hover:text-zinc-300 px-2 shrink-0">Trocar</button>
-                        </div>
+                        <AnimatePresence>
+                          <motion.div
+                            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                            className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 overflow-hidden relative cursor-default"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="relative w-full" style={{ aspectRatio: "16/6" }}>
+                              {localThumbnail ? (
+                                <img src={localThumbnail} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-zinc-900">
+                                  <Film className="h-8 w-8 text-emerald-400/50 animate-pulse" />
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/10 to-transparent" />
+                              {duration > 0 && (
+                                <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/80 rounded-lg px-3 py-1.5 backdrop-blur-sm border border-white/10">
+                                  <Clock className="h-3.5 w-3.5 text-zinc-300" />
+                                  <span className="text-sm font-bold text-white tabular-nums">{fmtDuration(duration)}</span>
+                                </div>
+                              )}
+                              <button onClick={(e) => { e.stopPropagation(); resetInput(); }}
+                                className="absolute top-3 right-3 h-7 w-7 flex items-center justify-center rounded-full bg-black/60 text-zinc-400 hover:text-white hover:bg-black/80 transition-colors z-10">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <div className="px-5 py-5 space-y-2">
+                              <p className="text-sm font-bold text-zinc-100 truncate">{selectedFile.name}</p>
+                              <p className="text-xs text-zinc-500">{(selectedFile.size / 1024 / 1024).toFixed(1)} MB</p>
+                            </div>
+                          </motion.div>
+                        </AnimatePresence>
                       ) : (
                         <div className="flex flex-col items-center py-14 gap-3">
                           <UploadCloud className="h-8 w-8 text-zinc-600" />
@@ -444,12 +477,16 @@ export default function UploadPage() {
                           { id: 'split', name: 'Tela Dividida', desc: 'Rosto (topo) + Cena (baixo)', icon: SlidersHorizontal, color: 'from-orange-500/20 to-amber-500/20' },
                           { id: 'react', name: 'React', desc: 'Vídeo em destaque + Overlay', icon: Wand2, color: 'from-pink-500/20 to-rose-500/20' },
                           { id: 'none', name: 'Desativado', desc: 'Sem enquadramento especial', icon: Ban, color: 'from-zinc-500/20 to-zinc-600/20' },
-                        ].map((l) => (
+                        ].map((l) => {
+                          const isDisabled = l.id !== 'none';
+                          return (
                           <button
                             key={l.id}
+                            disabled={isDisabled}
                             onClick={() => setP('layout', l.id as any)}
                             className={cn(
                               "relative group overflow-hidden flex items-center gap-4 p-4 rounded-xl border transition-all hover:scale-[1.02] active:scale-95",
+                              isDisabled ? "opacity-30 grayscale cursor-not-allowed" : "",
                               prefs.layout === l.id 
                                 ? "bg-white border-white text-black shadow-[0_0_20px_rgba(255,255,255,0.1)]" 
                                 : "bg-zinc-800/40 border-zinc-700/60 text-zinc-400 hover:border-zinc-500"
@@ -465,13 +502,13 @@ export default function UploadPage() {
                               <span className="text-xs font-black tracking-tight flex items-center gap-1.5">
                                 {l.name}
                                 {l.id === 'auto' && (
-                                  <span className="text-[10px] font-bold bg-white/10 px-1.5 py-0.5 rounded text-zinc-500">Recomendado</span>
+                                  <span className="text-[8px] uppercase tracking-wider bg-zinc-700/50 text-zinc-300 px-1.5 py-0.5 rounded">Recomendado</span>
                                 )}
                               </span>
-                              <span className="text-[10px] font-bold opacity-60 leading-tight mt-0.5">{l.desc}</span>
+                              <span className="text-[10px] text-zinc-500 leading-tight mt-0.5">{l.desc}</span>
                             </div>
                           </button>
-                        ))}
+                        )})}
                       </div>
                     </div>
 
@@ -548,72 +585,81 @@ export default function UploadPage() {
             </AnimatePresence>
 
             {/* ══ 03 · Estilo da Legenda ══ */}
-            <section>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[9px] uppercase tracking-[0.18em] text-zinc-600 font-semibold">03 · Estilo da Legenda</p>
-                {step === "options" && (
-                  <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-zinc-700/50 bg-zinc-900/60">
-                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    <span className="text-[10px] text-zinc-400 font-medium">
-                      {SUBTITLE_PRESETS.find(p => p.id === prefs.subtitle_preset)?.label}
-                    </span>
-                  </motion.div>
-                )}
-              </div>
-
-              {step === "input" ? (
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/20 flex flex-col items-center justify-center gap-3 py-12">
-                  <div className="h-10 w-10 rounded-2xl border border-zinc-800 bg-zinc-900 flex items-center justify-center">
-                    <LinkIcon className="h-5 w-5 text-zinc-600" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-semibold text-zinc-400">Importe um vídeo primeiro</p>
-                    <p className="text-xs text-zinc-700 mt-1">Os estilos ficarão disponíveis em seguida</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="relative group/carousel">
-                  <div 
-                    ref={carouselRef}
-                    className="grid grid-rows-3 grid-flow-col gap-2 overflow-x-auto pb-4 scrollbar-none snap-x select-none pr-32"
-                  >
-                    {SUBTITLE_PRESETS.map((preset, idx) => (
-                      <motion.div
-                        key={preset.id}
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.01, duration: 0.15 }}
-                        className="w-[180px] snap-start"
-                      >
-                        <SubtitleCard
-                          preset={preset}
-                          selected={prefs.subtitle_preset === preset.id}
-                          onSelect={() => setP("subtitle_preset", preset.id)}
-                        />
+            <AnimatePresence>
+              {prefs.generate_subtitles && (
+                <motion.section
+                  initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                  animate={{ opacity: 1, height: 'auto', marginTop: 32 }}
+                  exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="flex items-center justify-between mb-3 pt-2">
+                    <p className="text-[9px] uppercase tracking-[0.18em] text-zinc-600 font-semibold">03 · Estilo da Legenda</p>
+                    {step === "options" && (
+                      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-zinc-700/50 bg-zinc-900/60">
+                        <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        <span className="text-[10px] text-zinc-400 font-medium">
+                          {SUBTITLE_PRESETS.find(p => p.id === prefs.subtitle_preset)?.label}
+                        </span>
                       </motion.div>
-                    ))}
+                    )}
                   </div>
 
-                  {/* Navigation Arrows */}
-                  <button
-                    onClick={() => scrollCarousel("left")}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 h-10 w-10 rounded-full bg-black/60 border border-white/10 flex items-center justify-center text-white opacity-0 group-hover/carousel:opacity-100 transition-all hover:bg-black/80 hover:scale-110 z-20 backdrop-blur-sm shadow-xl"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                  <button
-                    onClick={() => scrollCarousel("right")}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 h-10 w-10 rounded-full bg-black/60 border border-white/10 flex items-center justify-center text-white opacity-0 group-hover/carousel:opacity-100 transition-all hover:bg-black/80 hover:scale-110 z-20 backdrop-blur-sm shadow-xl"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </button>
+                  {step === "input" ? (
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/20 flex flex-col items-center justify-center gap-3 py-12">
+                      <div className="h-10 w-10 rounded-2xl border border-zinc-800 bg-zinc-900 flex items-center justify-center">
+                        <LinkIcon className="h-5 w-5 text-zinc-600" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-zinc-400">Importe um vídeo primeiro</p>
+                        <p className="text-xs text-zinc-700 mt-1">Os estilos ficarão disponíveis em seguida</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative group/carousel">
+                      <div 
+                        ref={carouselRef}
+                        className="grid grid-rows-3 grid-flow-col gap-2 overflow-x-auto pb-4 scrollbar-none snap-x select-none pr-32"
+                      >
+                        {SUBTITLE_PRESETS.map((preset, idx) => (
+                          <motion.div
+                            key={preset.id}
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: idx * 0.01, duration: 0.15 }}
+                            className="w-[180px] snap-start"
+                          >
+                            <SubtitleCard
+                              preset={preset}
+                              selected={prefs.subtitle_preset === preset.id}
+                              onSelect={() => setP("subtitle_preset", preset.id)}
+                            />
+                          </motion.div>
+                        ))}
+                      </div>
 
-                  {/* Gradiente de fade no final do carrossel */}
-                  <div className="absolute top-0 right-0 bottom-4 w-32 bg-gradient-to-l from-zinc-950 to-transparent pointer-events-none z-10" />
-                </div>
+                      {/* Navigation Arrows */}
+                      <button
+                        onClick={() => scrollCarousel("left")}
+                        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 h-10 w-10 rounded-full bg-black/60 border border-white/10 flex items-center justify-center text-white opacity-0 group-hover/carousel:opacity-100 transition-all hover:bg-black/80 hover:scale-110 z-20 backdrop-blur-sm shadow-xl"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() => scrollCarousel("right")}
+                        className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 h-10 w-10 rounded-full bg-black/60 border border-white/10 flex items-center justify-center text-white opacity-0 group-hover/carousel:opacity-100 transition-all hover:bg-black/80 hover:scale-110 z-20 backdrop-blur-sm shadow-xl"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </button>
+
+                      {/* Gradiente de fade no final do carrossel */}
+                      <div className="absolute top-0 right-0 bottom-4 w-32 bg-gradient-to-l from-zinc-950 to-transparent pointer-events-none z-10" />
+                    </div>
+                  )}
+                </motion.section>
               )}
-            </section>
+            </AnimatePresence>
 
             {/* CTA */}
             <div className="space-y-3 pt-2 pb-10">
